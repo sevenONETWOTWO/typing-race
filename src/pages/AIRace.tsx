@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { IconArrowLeft, IconRobot, IconUser } from '../components/Icon';
 import {
   AI_SPEEDS,
   DIFFICULTY_LABEL,
@@ -10,13 +11,14 @@ import {
 } from '../data/aiSpeeds';
 import { getRandomText, type Language } from '../data/texts';
 import { useAIRacer } from '../hooks/useAIRacer';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useTypingEngine, type CharState } from '../hooks/useTypingEngine';
 
 const charClass: Record<CharState, string> = {
-  correct: 'text-slate-200',
-  incorrect: 'text-red-400 bg-red-500/20 rounded-sm',
-  current: 'text-slate-100 bg-sky-500/40 rounded-sm',
-  untyped: 'text-slate-600',
+  correct: 'text-ink',
+  incorrect: 'text-err bg-err-tint rounded-sm',
+  current: 'text-ink bg-amber-tint rounded-sm',
+  untyped: 'text-ink-soft',
 };
 
 function renderChar(target: string, state: CharState): string {
@@ -31,11 +33,10 @@ function resolveLang(raw: string | null): Language {
 type Phase = 'select' | 'countdown' | 'racing' | 'finished';
 type Winner = 'you' | 'ai';
 
-/**
- * Route wrapper. `key={lang}` forces a clean remount of the inner component
- * when the URL's ?lang= changes, resetting the entire state machine + timers
- * without needing prev-lang bookkeeping inside AIRaceInner.
- */
+const inputVisible =
+  'mt-6 sm:mt-8 w-full max-w-3xl px-4 py-3 rounded-xl bg-surface border border-line focus:border-amber outline-none text-ink font-mono text-lg tracking-wide shadow-[0_3px_0_var(--color-keycap)] focus:shadow-[0_2px_0_var(--color-keycap)] transition-[box-shadow]';
+const inputHidden = 'absolute left-[-9999px] top-0 opacity-0';
+
 export default function AIRace() {
   const [searchParams] = useSearchParams();
   const lang = resolveLang(searchParams.get('lang'));
@@ -44,8 +45,10 @@ export default function AIRace() {
 
 function AIRaceInner({ lang }: { lang: Language }) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const isZh = lang === 'zh';
   const unit = speedUnit(lang);
+  const showInput = isZh || isMobile;
 
   const [phase, setPhase] = useState<Phase>('select');
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null);
@@ -67,19 +70,12 @@ function AIRaceInner({ lang }: { lang: Language }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState<boolean>(true);
 
-  // Focus input when the race actually starts (and if target changes mid-race,
-  // e.g. on rematch bringing us back through countdown → racing).
   useEffect(() => {
     if (phase === 'racing') {
       inputRef.current?.focus();
     }
   }, [phase, target]);
 
-  // Countdown driver: 3 → 2 → 1 → race. Each number holds for 1s. The
-  // transition to 'racing' happens inside the timer callback (async, so it
-  // isn't a synchronous setState in the effect body) and stamps raceStartAt
-  // in the same batch as the phase flip — that's when both the AI clock and
-  // the player input become live.
   useEffect(() => {
     if (phase !== 'countdown') return;
     const id = window.setTimeout(() => {
@@ -93,10 +89,6 @@ function AIRaceInner({ lang }: { lang: Language }) {
     return () => window.clearTimeout(id);
   }, [phase, countdown]);
 
-  // Winner detection via the "adjust state during render" pattern. Checking
-  // engine.isComplete before aiRacer.isDone means any same-tick tie goes to
-  // the player (they landed the last char on the exact moment vs. AI's
-  // 100ms tick edge).
   if (
     phase === 'racing' &&
     winner === null &&
@@ -138,11 +130,6 @@ function AIRaceInner({ lang }: { lang: Language }) {
   };
 
   const playerSpeed = isZh ? engine.stats.cpm : engine.stats.wpm;
-  // Race time is derived, not stored — this avoids needing Date.now() at the
-  // winner-detection transition. Player win: engine.endedAt is captured
-  // synchronously the moment the last char lands. AI win: the AI finishes
-  // exactly at raceStartAt + targetLength / charsPerSecond (that's the math
-  // the tick converges toward), so we can compute it directly.
   const raceTimeMs =
     raceStartAt === null
       ? 0
@@ -155,47 +142,49 @@ function AIRaceInner({ lang }: { lang: Language }) {
 
   return (
     <div
-      className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center px-6 ${
-        phase === 'racing' && !isZh ? 'cursor-text' : ''
+      className={`min-h-dvh bg-canvas text-ink flex flex-col items-center px-4 sm:px-6 ${
+        phase === 'racing' && !showInput ? 'cursor-text' : ''
       }`}
-      onClick={phase === 'racing' && !isZh ? focusInput : undefined}
+      onClick={phase === 'racing' && !showInput ? focusInput : undefined}
     >
       <header
-        className="w-full max-w-3xl flex items-center justify-between pt-6 pb-4"
+        className="w-full max-w-3xl flex items-center justify-between pt-4 sm:pt-6 pb-4"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={handleHome}
-          className="text-sm text-slate-500 hover:text-slate-300 transition"
+          className="inline-flex items-center gap-1.5 text-sm text-ink-soft hover:text-ink transition"
         >
-          ← 首页
+          <IconArrowLeft size={16} />
+          首页
         </button>
-        <div className="text-[11px] uppercase tracking-widest text-slate-500">
+        <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-ink-soft font-mono">
+          <IconRobot size={14} className="text-amber" />
           {isZh ? '中文 · CPM · AI' : 'English · WPM · AI'}
         </div>
       </header>
 
       {phase === 'select' && (
         <div
-          className="w-full flex flex-col items-center pt-16"
+          className="w-full flex flex-col items-center pt-8 sm:pt-16"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="text-sm uppercase tracking-widest text-slate-500">
+          <div className="text-xs sm:text-sm uppercase tracking-widest text-amber font-mono">
             选择 AI 难度 · Choose Difficulty
           </div>
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-2xl">
+          <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 w-full max-w-2xl">
             {DIFFICULTY_ORDER.map((d) => (
               <button
                 key={d}
                 type="button"
                 onClick={() => handleSelectDifficulty(d)}
-                className="rounded-2xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-amber-500/60 transition p-6 text-center focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-5 sm:p-6 text-center focus:outline-none focus:ring-2 focus:ring-amber"
               >
-                <div className="text-2xl font-semibold text-slate-100">
+                <div className="text-xl sm:text-2xl font-mono font-semibold text-ink">
                   {DIFFICULTY_LABEL[d]}
                 </div>
-                <div className="mt-2 text-sm text-slate-400 tabular-nums">
+                <div className="mt-2 text-sm text-ink-soft font-mono tabular-nums">
                   {AI_SPEEDS[lang][d]} {unit}
                 </div>
               </button>
@@ -208,51 +197,33 @@ function AIRaceInner({ lang }: { lang: Language }) {
         phase === 'racing' ||
         phase === 'finished') && (
         <div
-          className="w-full flex flex-col items-center pt-4"
+          className="w-full flex flex-col items-center pt-2"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="w-full max-w-3xl space-y-3 mb-6">
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-sky-400 font-medium">你 · You</span>
-                <span className="tabular-nums text-slate-400">
-                  {engine.stats.progress}%
-                </span>
-              </div>
-              <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-sky-500 transition-all duration-150"
-                  style={{ width: `${engine.stats.progress}%` }}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-amber-400 font-medium">
-                  AI{difficulty !== null ? ` · ${DIFFICULTY_LABEL[difficulty]}` : ''}
-                </span>
-                <span className="tabular-nums text-slate-400">
-                  {aiProgress}%
-                </span>
-              </div>
-              <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-500 transition-all duration-100"
-                  style={{ width: `${aiRacer.progress}%` }}
-                />
-              </div>
-            </div>
+            <ProgressRow
+              label="你 · You"
+              icon={<IconUser size={14} />}
+              pct={engine.stats.progress}
+              color="amber"
+            />
+            <ProgressRow
+              label={`AI${difficulty !== null ? ` · ${DIFFICULTY_LABEL[difficulty]}` : ''}`}
+              icon={<IconRobot size={14} />}
+              pct={aiProgress}
+              color="opp"
+            />
           </div>
 
           {phase === 'racing' && (
-            <div className="w-full max-w-3xl flex items-center gap-8 justify-end mb-6 text-slate-300">
+            <div className="w-full max-w-3xl flex items-center gap-6 sm:gap-8 justify-end mb-6 text-ink">
               <MiniStat label={unit} value={playerSpeed} />
               <MiniStat label="Acc" value={`${engine.stats.accuracy}%`} />
             </div>
           )}
 
           {phase !== 'finished' && (
-            <div className="max-w-3xl w-full text-2xl md:text-3xl leading-relaxed font-mono tracking-wide select-none break-words">
+            <div className="max-w-3xl w-full text-xl sm:text-2xl md:text-3xl leading-relaxed font-mono tracking-wide select-none break-words">
               {engine.chars.map((c, i) => (
                 <span key={i} className={charClass[c.state]}>
                   {renderChar(c.char, c.state)}
@@ -262,14 +233,14 @@ function AIRaceInner({ lang }: { lang: Language }) {
           )}
 
           {phase === 'countdown' && (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="mt-8 sm:mt-10 flex flex-col items-center">
               <div
                 key={countdown}
-                className="text-8xl md:text-9xl font-bold text-sky-400 tabular-nums"
+                className="text-7xl sm:text-8xl md:text-9xl font-mono font-bold text-amber tabular-nums"
               >
                 {countdown > 0 ? countdown : ''}
               </div>
-              <div className="mt-2 text-xs uppercase tracking-widest text-slate-500">
+              <div className="mt-2 text-xs uppercase tracking-widest text-ink-soft font-mono">
                 准备开始 · Get ready
               </div>
             </div>
@@ -292,23 +263,27 @@ function AIRaceInner({ lang }: { lang: Language }) {
                   if (e.key === 'Tab') e.preventDefault();
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className={
-                  isZh
-                    ? 'mt-8 w-full max-w-3xl px-4 py-3 rounded-xl bg-slate-800/60 border border-slate-700 focus:border-sky-500/60 outline-none text-slate-100 font-mono text-lg tracking-wide'
-                    : 'absolute left-[-9999px] top-0 opacity-0'
-                }
+                className={showInput ? inputVisible : inputHidden}
                 spellCheck={false}
                 autoComplete="off"
                 autoCapitalize="off"
                 aria-label="typing input"
-                placeholder={isZh ? '用中文输入法在这里打字…' : undefined}
+                placeholder={
+                  isZh
+                    ? '用中文输入法在这里打字…'
+                    : isMobile
+                      ? '在这里打字…'
+                      : undefined
+                }
               />
-              {isZh ? (
-                <div className="mt-3 text-xs text-slate-500 text-center max-w-3xl">
-                  使用系统中文输入法逐字输入 · 汉字上屏后才会自动比对
+              {showInput ? (
+                <div className="mt-2 sm:mt-3 text-xs text-ink-soft text-center max-w-3xl">
+                  {isZh
+                    ? '使用系统中文输入法逐字输入 · 汉字上屏后才会自动比对'
+                    : '点击输入框调出键盘'}
                 </div>
               ) : (
-                <div className="h-6 mt-10 text-sm text-slate-500">
+                <div className="h-6 mt-8 sm:mt-10 text-sm text-ink-soft">
                   {focused
                     ? '直接开始打字'
                     : '点击继续打字 · Click to continue'}
@@ -318,15 +293,15 @@ function AIRaceInner({ lang }: { lang: Language }) {
           )}
 
           {phase === 'finished' && winner !== null && (
-            <div className="flex flex-col items-center pt-6">
+            <div className="flex flex-col items-center pt-4 sm:pt-6">
               <div
-                className={`text-sm uppercase tracking-widest ${
-                  winner === 'you' ? 'text-sky-400' : 'text-amber-400'
+                className={`text-xs sm:text-sm uppercase tracking-widest font-mono ${
+                  winner === 'you' ? 'text-amber' : 'text-ink-soft'
                 }`}
               >
                 {winner === 'you' ? '你赢了 · You Win' : 'AI 赢了 · AI Wins'}
               </div>
-              <div className="mt-8 grid grid-cols-3 gap-12 md:gap-20">
+              <div className="mt-6 sm:mt-8 grid grid-cols-3 gap-3 sm:gap-6">
                 <BigStat label={unit} value={playerSpeed} />
                 <BigStat
                   label="Accuracy"
@@ -337,33 +312,51 @@ function AIRaceInner({ lang }: { lang: Language }) {
                   value={`${(raceTimeMs / 1000).toFixed(1)}s`}
                 />
               </div>
-              <div className="mt-12 flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={handleRematch}
-                  className="rounded-full bg-sky-500 hover:bg-sky-400 text-slate-900 font-medium px-8 py-3 transition"
-                >
-                  再来一局
-                </button>
-                <button
-                  type="button"
-                  onClick={handleChangeDifficulty}
-                  className="rounded-full border border-slate-700 hover:bg-slate-800 text-slate-200 font-medium px-8 py-3 transition"
-                >
+              <div className="mt-8 sm:mt-12 flex flex-col sm:flex-row gap-3 w-full max-w-md sm:w-auto">
+                <PrimaryButton onClick={handleRematch}>再来一局</PrimaryButton>
+                <SecondaryButton onClick={handleChangeDifficulty}>
                   换难度
-                </button>
-                <button
-                  type="button"
-                  onClick={handleHome}
-                  className="rounded-full border border-slate-700 hover:bg-slate-800 text-slate-200 font-medium px-8 py-3 transition"
-                >
-                  回首页
-                </button>
+                </SecondaryButton>
+                <SecondaryButton onClick={handleHome}>回首页</SecondaryButton>
               </div>
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProgressRow({
+  label,
+  icon,
+  pct,
+  color,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  pct: number;
+  color: 'amber' | 'opp';
+}) {
+  const barColor = color === 'amber' ? 'bg-amber' : 'bg-ink-soft';
+  const textColor = color === 'amber' ? 'text-amber' : 'text-ink-soft';
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span
+          className={`inline-flex items-center gap-1.5 font-medium font-mono ${textColor}`}
+        >
+          {icon}
+          {label}
+        </span>
+        <span className="tabular-nums text-ink-soft font-mono">{pct}%</span>
+      </div>
+      <div className="h-3 rounded-full bg-surface-soft overflow-hidden border border-line">
+        <div
+          className={`h-full ${barColor} transition-all duration-100`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -376,11 +369,11 @@ function BigStat({
   value: string | number;
 }) {
   return (
-    <div className="text-center">
-      <div className="text-5xl md:text-6xl font-bold text-sky-400 tabular-nums">
+    <div className="rounded-xl border border-line bg-surface shadow-[0_4px_0_var(--color-keycap)] px-4 py-4 sm:px-6 sm:py-5 text-center min-w-0">
+      <div className="text-3xl sm:text-5xl font-mono font-bold text-amber tabular-nums">
         {value}
       </div>
-      <div className="mt-2 text-xs uppercase tracking-widest text-slate-500">
+      <div className="mt-1 sm:mt-2 text-[10px] sm:text-xs uppercase tracking-widest text-ink-soft font-mono">
         {label}
       </div>
     </div>
@@ -396,10 +389,48 @@ function MiniStat({
 }) {
   return (
     <div className="flex flex-col items-center">
-      <div className="text-2xl font-semibold tabular-nums">{value}</div>
-      <div className="text-[11px] uppercase tracking-wider text-slate-500">
+      <div className="text-xl sm:text-2xl font-mono font-semibold text-ink tabular-nums">
+        {value}
+      </div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-soft font-mono">
         {label}
       </div>
     </div>
+  );
+}
+
+function PrimaryButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full bg-amber hover:bg-amber-hover text-white font-medium px-8 py-3 shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-line bg-surface hover:bg-surface-soft text-ink font-medium px-8 py-3 shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75"
+    >
+      {children}
+    </button>
   );
 }

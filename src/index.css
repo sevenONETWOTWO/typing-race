@@ -1,1 +1,58 @@
 @import "tailwindcss";
+
+@theme {
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', Menlo, Monaco,
+    'Cascadia Code', 'Source Code Pro', Consolas, monospace;
+
+  --color-canvas: #f5f1e8;
+  --color-surface: #fffdf8;
+  --color-surface-soft: #f0ead9;
+  --color-keycap: #d8cfba;
+  --color-line: #e2d9c4;
+  --color-ink: #3a2f1c;
+  --color-ink-soft: #8a7a5e;
+  --color-amber: #e0921a;
+  --color-amber-hover: #b57415;
+  --color-amber-tint: #fbeecc;
+  --color-err: #c53030;
+  --color-err-tint: #fed7d7;
+}
+
+:root {
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-canvas: #1b1815;
+  --color-surface: #252019;
+  --color-surface-soft: #201c15;
+  --color-keycap: #100d09;
+  --color-line: #3a3225;
+  --color-ink: #f0e6d2;
+  --color-ink-soft: #a89476;
+  --color-amber: #f5a623;
+  --color-amber-hover: #ffb946;
+  --color-amber-tint: #3d2f1a;
+  --color-err: #f56565;
+  --color-err-tint: #4a1a1a;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  min-height: 100dvh;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Noto Sans SC',
+    sans-serif;
+}

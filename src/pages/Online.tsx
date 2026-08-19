@@ -4,8 +4,10 @@ import type {
   RealtimePresenceState,
 } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
+import { IconArrowLeft, IconUser, IconUsers } from '../components/Icon';
 import { getRandomText, type Language } from '../data/texts';
 import { getSupabase, hasSupabaseConfig } from '../lib/supabase';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useTypingEngine, type CharState } from '../hooks/useTypingEngine';
 
 /* ---------- Types ---------- */
@@ -40,11 +42,15 @@ type BroadcastEvent =
 /* ---------- Char rendering (shared with other race pages) ---------- */
 
 const charClass: Record<CharState, string> = {
-  correct: 'text-slate-200',
-  incorrect: 'text-red-400 bg-red-500/20 rounded-sm',
-  current: 'text-slate-100 bg-sky-500/40 rounded-sm',
-  untyped: 'text-slate-600',
+  correct: 'text-ink',
+  incorrect: 'text-err bg-err-tint rounded-sm',
+  current: 'text-ink bg-amber-tint rounded-sm',
+  untyped: 'text-ink-soft',
 };
+
+const inputVisible =
+  'mt-6 sm:mt-8 w-full max-w-3xl px-4 py-3 rounded-xl bg-surface border border-line focus:border-amber outline-none text-ink font-mono text-lg tracking-wide shadow-[0_3px_0_var(--color-keycap)] focus:shadow-[0_2px_0_var(--color-keycap)] transition-[box-shadow]';
+const inputHidden = 'absolute left-[-9999px] top-0 opacity-0';
 
 function renderChar(target: string, state: CharState): string {
   if (target === ' ' && state === 'incorrect') return '·';
@@ -113,8 +119,10 @@ export default function Online() {
   const engine = useTypingEngine(target, lang);
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState<boolean>(true);
+  const isMobile = useIsMobile();
 
   const isZh = lang === 'zh';
+  const showInput = isZh || isMobile;
   const unit = isZh ? 'CPM' : 'WPM';
   const playerSpeed = isZh ? engine.stats.cpm : engine.stats.wpm;
 
@@ -663,36 +671,38 @@ export default function Online() {
 
   return (
     <div
-      className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center px-6 ${
-        phase === 'racing' && !isZh ? 'cursor-text' : ''
+      className={`min-h-dvh bg-canvas text-ink flex flex-col items-center px-4 sm:px-6 ${
+        phase === 'racing' && !showInput ? 'cursor-text' : ''
       }`}
       onClick={
-        phase === 'racing' && !isZh
+        phase === 'racing' && !showInput
           ? () => inputRef.current?.focus()
           : undefined
       }
     >
       <header
-        className="w-full max-w-3xl flex items-center justify-between pt-6 pb-4"
+        className="w-full max-w-3xl flex items-center justify-between pt-4 sm:pt-6 pb-4"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={handleHome}
-          className="text-sm text-slate-500 hover:text-slate-300 transition"
+          className="inline-flex items-center gap-1.5 text-sm text-ink-soft hover:text-ink transition"
         >
-          ← 首页
+          <IconArrowLeft size={16} />
+          首页
         </button>
-        <div className="text-[11px] uppercase tracking-widest text-slate-500">
+        <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-ink-soft font-mono">
+          <IconUsers size={14} className="text-amber" />
           {roomCode
             ? `房间 ${roomCode} · ${isZh ? '中文 · CPM' : 'English · WPM'}`
-            : '联机对战 · Multiplayer'}
+            : '联机对战'}
         </div>
       </header>
 
       {errorMsg !== '' && (
         <div
-          className="w-full max-w-2xl mt-4 rounded-xl bg-red-500/10 border border-red-500/40 text-red-300 text-sm px-4 py-3"
+          className="w-full max-w-2xl mt-4 rounded-xl bg-err-tint border border-err/40 text-err text-sm px-4 py-3"
           onClick={(e) => e.stopPropagation()}
         >
           {errorMsg}
@@ -700,7 +710,7 @@ export default function Online() {
       )}
       {statusMsg !== '' && (
         <div
-          className="w-full max-w-2xl mt-4 text-center text-sm text-slate-400"
+          className="w-full max-w-2xl mt-4 text-center text-sm text-ink-soft"
           onClick={(e) => e.stopPropagation()}
         >
           {statusMsg}
@@ -740,7 +750,7 @@ export default function Online() {
         phase === 'racing' ||
         phase === 'finished') && (
         <div
-          className="w-full flex flex-col items-center pt-4"
+          className="w-full flex flex-col items-center pt-2"
           onClick={(e) => e.stopPropagation()}
         >
           <ProgressBars
@@ -750,14 +760,14 @@ export default function Online() {
           />
 
           {phase === 'racing' && (
-            <div className="w-full max-w-3xl flex items-center gap-8 justify-end mb-6 text-slate-300">
+            <div className="w-full max-w-3xl flex items-center gap-6 sm:gap-8 justify-end mb-6 text-ink">
               <MiniStat label={unit} value={playerSpeed} />
               <MiniStat label="Acc" value={`${engine.stats.accuracy}%`} />
             </div>
           )}
 
           {phase !== 'finished' && target !== '' && (
-            <div className="max-w-3xl w-full text-2xl md:text-3xl leading-relaxed font-mono tracking-wide select-none break-words">
+            <div className="max-w-3xl w-full text-xl sm:text-2xl md:text-3xl leading-relaxed font-mono tracking-wide select-none break-words">
               {engine.chars.map((c, i) => (
                 <span key={i} className={charClass[c.state]}>
                   {renderChar(c.char, c.state)}
@@ -767,14 +777,14 @@ export default function Online() {
           )}
 
           {phase === 'countdown' && (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="mt-8 sm:mt-10 flex flex-col items-center">
               <div
                 key={countdownTick}
-                className="text-8xl md:text-9xl font-bold text-sky-400 tabular-nums"
+                className="text-7xl sm:text-8xl md:text-9xl font-mono font-bold text-amber tabular-nums"
               >
                 {countdownTick > 0 ? countdownTick : ''}
               </div>
-              <div className="mt-2 text-xs uppercase tracking-widest text-slate-500">
+              <div className="mt-2 text-xs uppercase tracking-widest text-ink-soft font-mono">
                 准备开始 · Get ready
               </div>
             </div>
@@ -797,23 +807,27 @@ export default function Online() {
                   if (e.key === 'Tab') e.preventDefault();
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className={
-                  isZh
-                    ? 'mt-8 w-full max-w-3xl px-4 py-3 rounded-xl bg-slate-800/60 border border-slate-700 focus:border-sky-500/60 outline-none text-slate-100 font-mono text-lg tracking-wide'
-                    : 'absolute left-[-9999px] top-0 opacity-0'
-                }
+                className={showInput ? inputVisible : inputHidden}
                 spellCheck={false}
                 autoComplete="off"
                 autoCapitalize="off"
                 aria-label="typing input"
-                placeholder={isZh ? '用中文输入法在这里打字…' : undefined}
+                placeholder={
+                  isZh
+                    ? '用中文输入法在这里打字…'
+                    : isMobile
+                      ? '在这里打字…'
+                      : undefined
+                }
               />
-              {isZh ? (
-                <div className="mt-3 text-xs text-slate-500 text-center max-w-3xl">
-                  使用系统中文输入法逐字输入 · 汉字上屏后才会自动比对
+              {showInput ? (
+                <div className="mt-2 sm:mt-3 text-xs text-ink-soft text-center max-w-3xl">
+                  {isZh
+                    ? '使用系统中文输入法逐字输入 · 汉字上屏后才会自动比对'
+                    : '点击输入框调出键盘'}
                 </div>
               ) : (
-                <div className="h-6 mt-10 text-sm text-slate-500">
+                <div className="h-6 mt-8 sm:mt-10 text-sm text-ink-soft">
                   {focused
                     ? '直接开始打字'
                     : '点击继续打字 · Click to continue'}
@@ -857,22 +871,26 @@ function LobbyView({
 }) {
   return (
     <div
-      className="w-full max-w-2xl mt-16 grid grid-cols-1 md:grid-cols-2 gap-4"
+      className="w-full max-w-2xl mt-8 sm:mt-16 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4"
       onClick={(e) => e.stopPropagation()}
     >
       <button
         type="button"
         onClick={onCreate}
-        className="rounded-2xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-sky-500/60 transition p-8 text-left focus:outline-none focus:ring-2 focus:ring-sky-500"
+        className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber"
       >
-        <div className="text-2xl font-semibold text-slate-100">创建房间</div>
-        <div className="mt-2 text-sm text-slate-400">
+        <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
+          创建房间
+        </div>
+        <div className="mt-2 text-sm text-ink-soft">
           Create · 由你选语言,分享 4 位房间号
         </div>
       </button>
-      <div className="rounded-2xl border border-slate-700 bg-slate-800/60 p-8 flex flex-col gap-3">
-        <div className="text-2xl font-semibold text-slate-100">加入房间</div>
-        <div className="text-sm text-slate-400">Join · 输入 4 位房间号</div>
+      <div className="rounded-xl border border-line bg-surface shadow-[0_4px_0_var(--color-keycap)] p-6 sm:p-8 flex flex-col gap-3">
+        <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
+          加入房间
+        </div>
+        <div className="text-sm text-ink-soft">Join · 输入 4 位房间号</div>
         <input
           type="text"
           inputMode="numeric"
@@ -883,13 +901,13 @@ function LobbyView({
             onJoinCodeChange(e.target.value.replace(/\D/g, '').slice(0, 4))
           }
           placeholder="0000"
-          className="mt-1 w-full text-center text-3xl tabular-nums tracking-widest font-mono px-4 py-3 rounded-xl bg-slate-900/70 border border-slate-700 focus:border-sky-500/60 outline-none"
+          className="mt-1 w-full text-center text-3xl tabular-nums tracking-widest font-mono px-4 py-3 rounded-xl bg-canvas border border-line focus:border-amber outline-none text-ink placeholder:text-ink-soft"
         />
         <button
           type="button"
           onClick={onJoin}
           disabled={joinCodeInput.length !== 4}
-          className="mt-2 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-900 font-medium px-6 py-2.5 transition"
+          className="mt-2 rounded-full bg-amber hover:bg-amber-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-6 py-2.5 shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75"
         >
           加入
         </button>
@@ -907,38 +925,38 @@ function CreateConfigView({
 }) {
   return (
     <div
-      className="w-full max-w-2xl mt-16 flex flex-col items-center"
+      className="w-full max-w-2xl mt-8 sm:mt-16 flex flex-col items-center"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="text-sm uppercase tracking-widest text-slate-500">
+      <div className="text-sm uppercase tracking-widest text-amber font-mono">
         选择房间语言 · Room language
       </div>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+      <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full">
         <button
           type="button"
           onClick={() => onPick('en')}
-          className="rounded-2xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-sky-500/60 transition p-8 text-left focus:outline-none focus:ring-2 focus:ring-sky-500"
+          className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber"
         >
-          <div className="text-2xl font-semibold text-slate-100">
+          <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
             英文房间
           </div>
-          <div className="mt-2 text-sm text-slate-400">English · WPM</div>
+          <div className="mt-2 text-sm text-ink-soft">English · WPM</div>
         </button>
         <button
           type="button"
           onClick={() => onPick('zh')}
-          className="rounded-2xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 hover:border-sky-500/60 transition p-8 text-left focus:outline-none focus:ring-2 focus:ring-sky-500"
+          className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber"
         >
-          <div className="text-2xl font-semibold text-slate-100">
+          <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
             中文房间
           </div>
-          <div className="mt-2 text-sm text-slate-400">中文 · CPM · IME</div>
+          <div className="mt-2 text-sm text-ink-soft">中文 · CPM · IME</div>
         </button>
       </div>
       <button
         type="button"
         onClick={onBack}
-        className="mt-8 text-xs text-slate-500 hover:text-slate-300 underline underline-offset-4"
+        className="mt-8 text-xs text-ink-soft hover:text-amber underline underline-offset-4 transition"
       >
         返回大厅
       </button>
@@ -969,21 +987,23 @@ function WaitingView({
   const canReady = oppConnected && hasTarget;
   return (
     <div
-      className="w-full max-w-2xl mt-12 flex flex-col items-center"
+      className="w-full max-w-2xl mt-8 sm:mt-12 flex flex-col items-center"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="text-xs uppercase tracking-widest text-slate-500">
+      <div className="text-xs uppercase tracking-widest text-ink-soft font-mono">
         房间号 · Room Code
       </div>
-      <div className="mt-2 text-7xl md:text-8xl font-bold tabular-nums tracking-widest text-sky-400">
-        {roomCode}
+      <div className="mt-3 inline-block rounded-xl border border-line bg-surface shadow-[0_4px_0_var(--color-keycap)] px-6 sm:px-10 py-4 sm:py-5">
+        <div className="font-mono text-5xl sm:text-7xl md:text-8xl font-bold tabular-nums tracking-widest text-amber">
+          {roomCode}
+        </div>
       </div>
-      <div className="mt-3 text-sm text-slate-400">
+      <div className="mt-4 text-sm text-ink-soft font-mono">
         {isZh ? '中文房间 · CPM' : 'English 房间 · WPM'} ·{' '}
         {role === 'host' ? '你是房主' : '你是访客'}
       </div>
 
-      <div className="mt-10 w-full grid grid-cols-2 gap-4">
+      <div className="mt-8 sm:mt-10 w-full grid grid-cols-2 gap-3 sm:gap-4">
         <PlayerCard
           title={role === 'host' ? '你 (房主)' : '你 (访客)'}
           connected
@@ -1002,29 +1022,29 @@ function WaitingView({
         type="button"
         onClick={onToggleReady}
         disabled={!canReady}
-        className={`mt-10 rounded-full px-10 py-3 font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`mt-8 sm:mt-10 rounded-full px-10 py-3 font-medium shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-[0_3px_0_var(--color-keycap)] ${
           meReady
-            ? 'bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700'
-            : 'bg-sky-500 hover:bg-sky-400 text-slate-900'
+            ? 'bg-surface border border-line text-ink hover:bg-surface-soft'
+            : 'bg-amber hover:bg-amber-hover text-white'
         }`}
       >
         {meReady ? '取消准备' : '准备'}
       </button>
 
       {!oppConnected && (
-        <div className="mt-4 text-xs text-slate-500">
+        <div className="mt-4 text-xs text-ink-soft text-center">
           {role === 'host'
             ? '把房间号发给朋友让 TA 加入…'
             : '等待房主准备好房间…'}
         </div>
       )}
       {oppConnected && !hasTarget && role === 'guest' && (
-        <div className="mt-4 text-xs text-slate-500">
+        <div className="mt-4 text-xs text-ink-soft">
           正在同步房间语言和文本…
         </div>
       )}
       {oppConnected && meReady && oppReady && role === 'guest' && (
-        <div className="mt-4 text-xs text-slate-500">等待房主开始…</div>
+        <div className="mt-4 text-xs text-ink-soft">等待房主开始…</div>
       )}
     </div>
   );
@@ -1041,24 +1061,23 @@ function PlayerCard({
   ready: boolean;
   highlight: 'you' | 'opp';
 }) {
-  const color = highlight === 'you' ? 'sky' : 'amber';
   return (
-    <div className="rounded-2xl border border-slate-700 bg-slate-800/60 p-5 text-center">
+    <div className="rounded-xl border border-line bg-surface shadow-[0_4px_0_var(--color-keycap)] p-4 sm:p-5 text-center">
       <div
-        className={`text-sm font-medium ${
-          color === 'sky' ? 'text-sky-400' : 'text-amber-400'
+        className={`text-sm font-mono font-medium ${
+          highlight === 'you' ? 'text-amber' : 'text-ink-soft'
         }`}
       >
         {title}
       </div>
-      <div className="mt-3 text-xs text-slate-500">
+      <div className="mt-3 text-xs text-ink-soft">
         {connected ? '已连接' : '未连接'}
       </div>
       <div className="mt-1 text-sm font-medium">
         {ready ? (
-          <span className="text-emerald-400">✓ 准备</span>
+          <span className="text-amber font-mono">✓ 准备</span>
         ) : (
-          <span className="text-slate-500">未准备</span>
+          <span className="text-ink-soft">未准备</span>
         )}
       </div>
     </div>
@@ -1078,28 +1097,32 @@ function ProgressBars({
     <div className="w-full max-w-3xl space-y-3 mb-6">
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span className="text-sky-400 font-medium">你 · You</span>
-          <span className="tabular-nums text-slate-400">{youPct}%</span>
+          <span className="inline-flex items-center gap-1.5 text-amber font-medium font-mono">
+            <IconUser size={14} />
+            你 · You
+          </span>
+          <span className="tabular-nums text-ink-soft font-mono">{youPct}%</span>
         </div>
-        <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-3 rounded-full bg-surface-soft overflow-hidden border border-line">
           <div
-            className="h-full bg-sky-500 transition-all duration-150"
+            className="h-full bg-amber transition-all duration-150"
             style={{ width: `${youPct}%` }}
           />
         </div>
       </div>
       <div>
         <div className="flex justify-between text-sm mb-1">
-          <span className="text-amber-400 font-medium">
+          <span className="inline-flex items-center gap-1.5 text-ink-soft font-medium font-mono">
+            <IconUser size={14} />
             对手 · {role === 'host' ? '访客' : '房主'}
           </span>
-          <span className="tabular-nums text-slate-400">
+          <span className="tabular-nums text-ink-soft font-mono">
             {Math.floor(oppPct)}%
           </span>
         </div>
-        <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-3 rounded-full bg-surface-soft overflow-hidden border border-line">
           <div
-            className="h-full bg-amber-500 transition-all duration-150"
+            className="h-full bg-ink-soft transition-all duration-150"
             style={{ width: `${oppPct}%` }}
           />
         </div>
@@ -1139,17 +1162,19 @@ function FinishedView({
         : '对方已离开 · Opponent Left';
   const color =
     endReason === 'you'
-      ? 'text-sky-400'
+      ? 'text-amber'
       : endReason === 'opponent'
-        ? 'text-amber-400'
-        : 'text-slate-400';
+        ? 'text-ink-soft'
+        : 'text-ink-soft';
   const canRematch = oppConnected;
   return (
-    <div className="flex flex-col items-center pt-6">
-      <div className={`text-sm uppercase tracking-widest ${color}`}>
+    <div className="flex flex-col items-center pt-4 sm:pt-6">
+      <div
+        className={`text-xs sm:text-sm uppercase tracking-widest font-mono ${color}`}
+      >
         {title}
       </div>
-      <div className="mt-8 grid grid-cols-3 gap-12 md:gap-20">
+      <div className="mt-6 sm:mt-8 grid grid-cols-3 gap-3 sm:gap-6">
         <BigStat label={unit} value={playerSpeed} />
         <BigStat label="Accuracy" value={`${accuracy}%`} />
         <BigStat
@@ -1159,26 +1184,26 @@ function FinishedView({
       </div>
 
       {canRematch && oppRematchReady && !meRematchReady && (
-        <div className="mt-8 text-xs text-amber-400">
+        <div className="mt-6 sm:mt-8 text-xs text-amber font-mono">
           对方已选择再来一局 · 等你确认
         </div>
       )}
       {!canRematch && endReason !== 'left' && (
-        <div className="mt-8 text-xs text-slate-500">
+        <div className="mt-6 sm:mt-8 text-xs text-ink-soft">
           对方已离开 · 只能回首页
         </div>
       )}
 
-      <div className="mt-8 flex flex-col sm:flex-row gap-3">
+      <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row gap-3 w-full max-w-sm sm:w-auto">
         {canRematch && (
           <button
             type="button"
             onClick={onRematch}
             disabled={meRematchReady}
-            className={`rounded-full px-8 py-3 font-medium transition disabled:cursor-not-allowed ${
+            className={`rounded-full px-8 py-3 font-medium shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-[0_3px_0_var(--color-keycap)] ${
               meRematchReady
-                ? 'bg-slate-800 border border-slate-700 text-slate-500'
-                : 'bg-sky-500 hover:bg-sky-400 text-slate-900'
+                ? 'bg-surface border border-line text-ink-soft'
+                : 'bg-amber hover:bg-amber-hover text-white'
             }`}
           >
             {meRematchReady ? '等待对方…' : '再来一局'}
@@ -1187,7 +1212,7 @@ function FinishedView({
         <button
           type="button"
           onClick={onHome}
-          className="rounded-full border border-slate-700 hover:bg-slate-800 text-slate-200 font-medium px-8 py-3 transition"
+          className="rounded-full border border-line bg-surface hover:bg-surface-soft text-ink font-medium px-8 py-3 shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75"
         >
           回首页
         </button>
@@ -1204,11 +1229,11 @@ function BigStat({
   value: string | number;
 }) {
   return (
-    <div className="text-center">
-      <div className="text-5xl md:text-6xl font-bold text-sky-400 tabular-nums">
+    <div className="rounded-xl border border-line bg-surface shadow-[0_4px_0_var(--color-keycap)] px-4 py-4 sm:px-6 sm:py-5 text-center min-w-0">
+      <div className="text-3xl sm:text-5xl font-mono font-bold text-amber tabular-nums">
         {value}
       </div>
-      <div className="mt-2 text-xs uppercase tracking-widest text-slate-500">
+      <div className="mt-1 sm:mt-2 text-[10px] sm:text-xs uppercase tracking-widest text-ink-soft font-mono">
         {label}
       </div>
     </div>
@@ -1224,8 +1249,10 @@ function MiniStat({
 }) {
   return (
     <div className="flex flex-col items-center">
-      <div className="text-2xl font-semibold tabular-nums">{value}</div>
-      <div className="text-[11px] uppercase tracking-wider text-slate-500">
+      <div className="text-xl sm:text-2xl font-mono font-semibold text-ink tabular-nums">
+        {value}
+      </div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-soft font-mono">
         {label}
       </div>
     </div>
