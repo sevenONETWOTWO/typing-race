@@ -33,7 +33,9 @@ type BroadcastEvent =
   | { type: 'ready'; role: Role; ready: boolean }
   | { type: 'start'; at: number } // ms epoch when race should start (from host)
   | { type: 'progress'; role: Role; progress: number }
-  | { type: 'finish'; role: Role; at: number }; // ms epoch finish timestamp
+  | { type: 'finish'; role: Role; at: number } // ms epoch finish timestamp
+  | { type: 'rematch-ready'; role: Role; ready: boolean }
+  | { type: 'rematch-start'; text: string; at: number }; // bundled: new sentence + start timestamp
 
 /* ---------- Char rendering (shared with other race pages) ---------- */
 
@@ -72,6 +74,8 @@ export default function Online() {
   const [oppReady, setOppReady] = useState<boolean>(false);
   const [oppConnected, setOppConnected] = useState<boolean>(false);
   const [oppProgress, setOppProgress] = useState<number>(0);
+  const [meRematchReady, setMeRematchReady] = useState<boolean>(false);
+  const [oppRematchReady, setOppRematchReady] = useState<boolean>(false);
 
   const [raceStartAt, setRaceStartAt] = useState<number | null>(null);
   const [raceEndAt, setRaceEndAt] = useState<number | null>(null);
@@ -213,6 +217,27 @@ export default function Online() {
     }
   }, [engine.stats.progress, phase, send]);
 
+  /* ---------- Cross-race reset (used for rematch) ---------- */
+
+  const resetForNewRace = useCallback(() => {
+    // Clear every scrap of previous-race state so the next race starts as
+    // clean as the very first one. State setters queue; refs are wiped
+    // synchronously so any listener callback firing before the next React
+    // commit still sees fresh values (endReasonRef in particular gates
+    // tryResolveWinner).
+    setEndReason(null);
+    endReasonRef.current = null;
+    setRaceEndAt(null);
+    setOppProgress(0);
+    setMeRematchReady(false);
+    setOppRematchReady(false);
+    finishSentRef.current = false;
+    myFinishAtRef.current = null;
+    oppFinishAtRef.current = null;
+    lastProgressSentRef.current = 0;
+    lastProgressAtRef.current = 0;
+  }, []);
+
   /* ---------- Winner resolution ---------- */
 
   const tryResolveWinner = useCallback(() => {
@@ -317,6 +342,19 @@ export default function Online() {
               tryResolveWinner();
             }
             break;
+          case 'rematch-ready':
+            if (payload.role !== myRole) setOppRematchReady(payload.ready);
+            break;
+          case 'rematch-start':
+            // Host bundles new target + start timestamp into one message so
+            // guest never races into countdown holding the previous target.
+            if (myRole === 'guest') {
+              resetForNewRace();
+              setTarget(payload.text);
+              setRaceStartAt(payload.at);
+              setPhase('countdown');
+            }
+            break;
           default:
             break;
         }
@@ -344,6 +382,12 @@ export default function Online() {
       );
       ch.on('broadcast', { event: 'finish' }, ({ payload }) =>
         onEvent('finish', payload as BroadcastEvent),
+      );
+      ch.on('broadcast', { event: 'rematch-ready' }, ({ payload }) =>
+        onEvent('rematch-ready', payload as BroadcastEvent),
+      );
+      ch.on('broadcast', { event: 'rematch-start' }, ({ payload }) =>
+        onEvent('rematch-start', payload as BroadcastEvent),
       );
 
       ch.on('presence', { event: 'sync' }, handlePresenceSync);
@@ -380,7 +424,7 @@ export default function Online() {
         }, 50);
       });
     },
-    [handlePresenceSync, send, tryResolveWinner],
+    [handlePresenceSync, send, tryResolveWinner, resetForNewRace],
   );
 
   /* ---------- Create room ---------- */
@@ -564,6 +608,42 @@ export default function Online() {
       setPhase('countdown');
     }
   }, [meReady, oppReady, phase, send]);
+
+  /* ---------- Rematch ---------- */
+
+  const handleRematch = useCallback(() => {
+    const myRole = roleRef.current;
+    if (myRole === null) return;
+    setMeRematchReady(true);
+    send({ type: 'rematch-ready', role: myRole, ready: true });
+  }, [send]);
+
+  // Host: when both sides have opted into rematch, roll a fresh sentence in
+  // the same language, reset all race state, and broadcast rematch-start
+  // (which carries text + timestamp together so guest can't race with a
+  // stale target). Guarded on oppConnected so a dropped opponent doesn't
+  // silently kick off a new race that only we can play.
+  useEffect(() => {
+    if (phase !== 'finished') return;
+    if (roleRef.current !== 'host') return;
+    if (!oppConnected) return;
+    if (!meRematchReady || !oppRematchReady) return;
+
+    const newText = getRandomText(langRef.current, targetRef.current);
+    const startAt = Date.now() + 3500;
+    resetForNewRace();
+    setTarget(newText);
+    send({ type: 'rematch-start', text: newText, at: startAt });
+    setRaceStartAt(startAt);
+    setPhase('countdown');
+  }, [
+    phase,
+    meRematchReady,
+    oppRematchReady,
+    oppConnected,
+    send,
+    resetForNewRace,
+  ]);
 
   /* ---------- Reset when leaving to home ---------- */
 
@@ -749,6 +829,10 @@ export default function Online() {
               playerSpeed={playerSpeed}
               accuracy={engine.stats.accuracy}
               raceTimeMs={raceTimeMs}
+              oppConnected={oppConnected}
+              meRematchReady={meRematchReady}
+              oppRematchReady={oppRematchReady}
+              onRematch={handleRematch}
               onHome={handleHome}
             />
           )}
@@ -1030,6 +1114,10 @@ function FinishedView({
   playerSpeed,
   accuracy,
   raceTimeMs,
+  oppConnected,
+  meRematchReady,
+  oppRematchReady,
+  onRematch,
   onHome,
 }: {
   endReason: EndReason;
@@ -1037,6 +1125,10 @@ function FinishedView({
   playerSpeed: number;
   accuracy: number;
   raceTimeMs: number;
+  oppConnected: boolean;
+  meRematchReady: boolean;
+  oppRematchReady: boolean;
+  onRematch: () => void;
   onHome: () => void;
 }) {
   const title =
@@ -1051,6 +1143,7 @@ function FinishedView({
       : endReason === 'opponent'
         ? 'text-amber-400'
         : 'text-slate-400';
+  const canRematch = oppConnected;
   return (
     <div className="flex flex-col items-center pt-6">
       <div className={`text-sm uppercase tracking-widest ${color}`}>
@@ -1064,7 +1157,33 @@ function FinishedView({
           value={raceTimeMs > 0 ? `${(raceTimeMs / 1000).toFixed(1)}s` : '—'}
         />
       </div>
-      <div className="mt-12">
+
+      {canRematch && oppRematchReady && !meRematchReady && (
+        <div className="mt-8 text-xs text-amber-400">
+          对方已选择再来一局 · 等你确认
+        </div>
+      )}
+      {!canRematch && endReason !== 'left' && (
+        <div className="mt-8 text-xs text-slate-500">
+          对方已离开 · 只能回首页
+        </div>
+      )}
+
+      <div className="mt-8 flex flex-col sm:flex-row gap-3">
+        {canRematch && (
+          <button
+            type="button"
+            onClick={onRematch}
+            disabled={meRematchReady}
+            className={`rounded-full px-8 py-3 font-medium transition disabled:cursor-not-allowed ${
+              meRematchReady
+                ? 'bg-slate-800 border border-slate-700 text-slate-500'
+                : 'bg-sky-500 hover:bg-sky-400 text-slate-900'
+            }`}
+          >
+            {meRematchReady ? '等待对方…' : '再来一局'}
+          </button>
+        )}
         <button
           type="button"
           onClick={onHome}
