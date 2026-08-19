@@ -117,7 +117,7 @@ function AIRaceInner({ lang }: { lang: Language }) {
 
   const handleRematch = () => {
     if (difficulty !== null) {
-      startCountdown(difficulty, getRandomText(lang, target));
+      startCountdown(difficulty, getRandomText(lang, 'medium', target));
     }
   };
 

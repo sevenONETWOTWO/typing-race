@@ -5,7 +5,11 @@ import type {
 } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
 import { IconArrowLeft, IconUser, IconUsers } from '../components/Icon';
-import { getRandomText, type Language } from '../data/texts';
+import {
+  getRandomText,
+  type Language,
+  type TextDifficulty,
+} from '../data/texts';
 import { getSupabase, hasSupabaseConfig } from '../lib/supabase';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useTypingEngine, type CharState } from '../hooks/useTypingEngine';
@@ -29,8 +33,10 @@ interface PresenceMeta {
 /* ---------- Broadcast event payloads ---------- */
 
 type BroadcastEvent =
-  | { type: 'sync-request' } // guest asks host for lang+text after joining
-  | { type: 'lang'; lang: Language }
+  | { type: 'sync-request' } // guest asks host for lang+difficulty+text after joining
+  // Bundled lang + difficulty so guests never see one without the other
+  // (they always render together in the UI).
+  | { type: 'lang'; lang: Language; difficulty: TextDifficulty }
   | { type: 'text'; text: string }
   | { type: 'ready'; role: Role; ready: boolean }
   | { type: 'start'; at: number } // ms epoch when race should start (from host)
@@ -38,6 +44,19 @@ type BroadcastEvent =
   | { type: 'finish'; role: Role; at: number } // ms epoch finish timestamp
   | { type: 'rematch-ready'; role: Role; ready: boolean }
   | { type: 'rematch-start'; text: string; at: number }; // bundled: new sentence + start timestamp
+
+/* ---------- Difficulty labels ---------- */
+
+const DIFFICULTY_ORDER: readonly TextDifficulty[] = [
+  'short',
+  'medium',
+  'long',
+] as const;
+const DIFFICULTY_LABEL: Record<TextDifficulty, string> = {
+  short: '短句',
+  medium: '中句',
+  long: '长句',
+};
 
 /* ---------- Char rendering (shared with other race pages) ---------- */
 
@@ -72,6 +91,7 @@ export default function Online() {
   const [roomCode, setRoomCode] = useState<string>('');
   const [joinCodeInput, setJoinCodeInput] = useState<string>('');
   const [lang, setLang] = useState<Language>('en');
+  const [difficulty, setDifficulty] = useState<TextDifficulty>('medium');
   const [target, setTarget] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
@@ -100,12 +120,16 @@ export default function Online() {
   // values (their closures are locked in at attach-time, before setLang /
   // setTarget from handleCreateRoom have settled).
   const langRef = useRef<Language>(lang);
+  const difficultyRef = useRef<TextDifficulty>(difficulty);
   const targetRef = useRef<string>(target);
   const meReadyRef = useRef<boolean>(false);
   const endReasonRef = useRef<EndReason | null>(null);
   useEffect(() => {
     langRef.current = lang;
   }, [lang]);
+  useEffect(() => {
+    difficultyRef.current = difficulty;
+  }, [difficulty]);
   useEffect(() => {
     targetRef.current = target;
   }, [target]);
@@ -173,7 +197,11 @@ export default function Online() {
       // ran inside handleCreateRoom, before setLang/setTarget committed.
       if (!prev && nowConnected && myRole === 'host') {
         window.setTimeout(() => {
-          send({ type: 'lang', lang: langRef.current });
+          send({
+            type: 'lang',
+            lang: langRef.current,
+            difficulty: difficultyRef.current,
+          });
           send({ type: 'text', text: targetRef.current });
         }, 100);
       }
@@ -318,7 +346,11 @@ export default function Online() {
               // Read from refs, not closures: attachListeners captured its
               // deps at the moment handleCreateRoom kicked off, before
               // setLang/setTarget for the chosen language had committed.
-              send({ type: 'lang', lang: langRef.current });
+              send({
+                type: 'lang',
+                lang: langRef.current,
+                difficulty: difficultyRef.current,
+              });
               send({ type: 'text', text: targetRef.current });
               if (meReadyRef.current) {
                 send({ type: 'ready', role: 'host', ready: true });
@@ -326,7 +358,10 @@ export default function Online() {
             }
             break;
           case 'lang':
-            if (myRole === 'guest') setLang(payload.lang);
+            if (myRole === 'guest') {
+              setLang(payload.lang);
+              setDifficulty(payload.difficulty);
+            }
             break;
           case 'text':
             if (myRole === 'guest' && payload.text.length > 0)
@@ -438,7 +473,7 @@ export default function Online() {
   /* ---------- Create room ---------- */
 
   const handleCreateRoom = useCallback(
-    async (chosenLang: Language) => {
+    async (chosenLang: Language, chosenDifficulty: TextDifficulty) => {
       if (!hasSupabaseConfig()) {
         setErrorMsg(
           'Supabase 环境变量未配置(VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY),请在 .env.local 里填上再刷新。',
@@ -448,7 +483,8 @@ export default function Online() {
       setErrorMsg('');
       setStatusMsg('正在创建房间…');
       setLang(chosenLang);
-      const initialTarget = getRandomText(chosenLang);
+      setDifficulty(chosenDifficulty);
+      const initialTarget = getRandomText(chosenLang, chosenDifficulty);
       setTarget(initialTarget);
 
       const supabase = getSupabase();
@@ -637,7 +673,11 @@ export default function Online() {
     if (!oppConnected) return;
     if (!meRematchReady || !oppRematchReady) return;
 
-    const newText = getRandomText(langRef.current, targetRef.current);
+    const newText = getRandomText(
+      langRef.current,
+      difficultyRef.current,
+      targetRef.current,
+    );
     const startAt = Date.now() + 3500;
     resetForNewRace();
     setTarget(newText);
@@ -695,7 +735,7 @@ export default function Online() {
         <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-ink-soft font-mono">
           <IconUsers size={14} className="text-amber" />
           {roomCode
-            ? `房间 ${roomCode} · ${isZh ? '中文 · CPM' : 'English · WPM'}`
+            ? `房间 ${roomCode} · ${isZh ? '中文 · CPM' : 'English · WPM'} · ${DIFFICULTY_LABEL[difficulty]}`
             : '联机对战'}
         </div>
       </header>
@@ -728,7 +768,7 @@ export default function Online() {
 
       {phase === 'create-config' && (
         <CreateConfigView
-          onPick={(l) => void handleCreateRoom(l)}
+          onPick={(l, d) => void handleCreateRoom(l, d)}
           onBack={() => setPhase('lobby')}
         />
       )}
@@ -738,6 +778,7 @@ export default function Online() {
           role={role}
           roomCode={roomCode}
           lang={lang}
+          difficulty={difficulty}
           oppConnected={oppConnected}
           meReady={meReady}
           oppReady={oppReady}
@@ -920,9 +961,12 @@ function CreateConfigView({
   onPick,
   onBack,
 }: {
-  onPick: (lang: Language) => void;
+  onPick: (lang: Language, difficulty: TextDifficulty) => void;
   onBack: () => void;
 }) {
+  const [chosenLang, setChosenLang] = useState<Language | null>(null);
+  const [chosenDifficulty, setChosenDifficulty] =
+    useState<TextDifficulty>('medium');
   return (
     <div
       className="w-full max-w-2xl mt-8 sm:mt-16 flex flex-col items-center"
@@ -932,31 +976,55 @@ function CreateConfigView({
         选择房间语言 · Room language
       </div>
       <div className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full">
-        <button
-          type="button"
-          onClick={() => onPick('en')}
-          className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber"
-        >
-          <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
-            英文房间
-          </div>
-          <div className="mt-2 text-sm text-ink-soft">English · WPM</div>
-        </button>
-        <button
-          type="button"
-          onClick={() => onPick('zh')}
-          className="rounded-xl border border-line bg-surface hover:border-amber shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber"
-        >
-          <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
-            中文房间
-          </div>
-          <div className="mt-2 text-sm text-ink-soft">中文 · CPM · IME</div>
-        </button>
+        <LangCard
+          selected={chosenLang === 'en'}
+          onClick={() => setChosenLang('en')}
+          title="英文房间"
+          subtitle="English · WPM"
+        />
+        <LangCard
+          selected={chosenLang === 'zh'}
+          onClick={() => setChosenLang('zh')}
+          title="中文房间"
+          subtitle="中文 · CPM · IME"
+        />
       </div>
+
+      <div className="mt-8 sm:mt-10 text-sm uppercase tracking-widest text-amber font-mono">
+        选择字数难度 · Sentence length
+      </div>
+      <div className="mt-4 sm:mt-6 grid grid-cols-3 gap-3 sm:gap-4 w-full">
+        {DIFFICULTY_ORDER.map((d) => (
+          <DifficultyKey
+            key={d}
+            selected={chosenDifficulty === d}
+            onClick={() => setChosenDifficulty(d)}
+            label={DIFFICULTY_LABEL[d]}
+            hint={
+              d === 'short'
+                ? 'Short'
+                : d === 'medium'
+                  ? 'Medium'
+                  : 'Long'
+            }
+          />
+        ))}
+      </div>
+
+      <button
+        type="button"
+        disabled={chosenLang === null}
+        onClick={() =>
+          chosenLang !== null && onPick(chosenLang, chosenDifficulty)
+        }
+        className="mt-8 sm:mt-10 rounded-full bg-amber hover:bg-amber-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-10 py-3 shadow-[0_3px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[1px] active:translate-y-[2px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,background-color] duration-75"
+      >
+        创建房间
+      </button>
       <button
         type="button"
         onClick={onBack}
-        className="mt-8 text-xs text-ink-soft hover:text-amber underline underline-offset-4 transition"
+        className="mt-6 text-xs text-ink-soft hover:text-amber underline underline-offset-4 transition"
       >
         返回大厅
       </button>
@@ -964,10 +1032,75 @@ function CreateConfigView({
   );
 }
 
+function LangCard({
+  selected,
+  onClick,
+  title,
+  subtitle,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl border bg-surface shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color,background-color] duration-75 p-6 sm:p-8 text-left focus:outline-none focus:ring-2 focus:ring-amber ${
+        selected
+          ? 'border-amber bg-amber-tint'
+          : 'border-line hover:border-amber'
+      }`}
+    >
+      <div className="font-mono text-xl sm:text-2xl font-semibold text-ink">
+        {title}
+      </div>
+      <div className="mt-2 text-sm text-ink-soft">{subtitle}</div>
+    </button>
+  );
+}
+
+function DifficultyKey({
+  selected,
+  onClick,
+  label,
+  hint,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl border bg-surface shadow-[0_4px_0_var(--color-keycap)] hover:shadow-[0_2px_0_var(--color-keycap)] hover:translate-y-[2px] active:translate-y-[3px] active:shadow-[0_1px_0_var(--color-keycap)] transition-[transform,box-shadow,border-color,background-color] duration-75 px-3 py-4 sm:px-4 sm:py-5 text-center focus:outline-none focus:ring-2 focus:ring-amber ${
+        selected
+          ? 'border-amber bg-amber-tint'
+          : 'border-line hover:border-amber'
+      }`}
+    >
+      <div
+        className={`font-mono text-lg sm:text-xl font-semibold ${
+          selected ? 'text-amber' : 'text-ink'
+        }`}
+      >
+        {label}
+      </div>
+      <div className="mt-1 text-[10px] uppercase tracking-widest text-ink-soft font-mono">
+        {hint}
+      </div>
+    </button>
+  );
+}
+
 function WaitingView({
   role,
   roomCode,
   lang,
+  difficulty,
   oppConnected,
   meReady,
   oppReady,
@@ -977,6 +1110,7 @@ function WaitingView({
   role: Role | null;
   roomCode: string;
   lang: Language;
+  difficulty: TextDifficulty;
   oppConnected: boolean;
   meReady: boolean;
   oppReady: boolean;
@@ -1000,6 +1134,7 @@ function WaitingView({
       </div>
       <div className="mt-4 text-sm text-ink-soft font-mono">
         {isZh ? '中文房间 · CPM' : 'English 房间 · WPM'} ·{' '}
+        {DIFFICULTY_LABEL[difficulty]} ·{' '}
         {role === 'host' ? '你是房主' : '你是访客'}
       </div>
 

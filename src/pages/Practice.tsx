@@ -54,7 +54,7 @@ export default function Practice() {
 
   const focusInput = () => inputRef.current?.focus();
   const handleNext = () => {
-    setTarget((prev) => getRandomText(lang, prev));
+    setTarget((prev) => getRandomText(lang, 'medium', prev));
   };
   const handleHome = () => {
     navigate('/');
