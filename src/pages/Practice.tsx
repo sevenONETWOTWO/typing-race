@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getRandomText, type Language } from '../data/texts';
 import { useTypingEngine, type CharState } from '../hooks/useTypingEngine';
 
@@ -17,10 +17,25 @@ function renderChar(target: string, state: CharState): string {
   return target;
 }
 
+function resolveLang(raw: string | null): Language {
+  return raw === 'zh' ? 'zh' : 'en';
+}
+
 export default function Practice() {
   const navigate = useNavigate();
-  const [lang, setLang] = useState<Language>('en');
-  const [target, setTarget] = useState<string>(() => getRandomText('en'));
+  const [searchParams] = useSearchParams();
+  const lang = resolveLang(searchParams.get('lang'));
+
+  const [target, setTarget] = useState<string>(() => getRandomText(lang));
+  // Track prev lang so a URL change (e.g. user edits ?lang= directly, or
+  // react-router navigates without unmounting Practice) still swaps the
+  // sentence to the correct language pool.
+  const [prevLang, setPrevLang] = useState<Language>(lang);
+  if (lang !== prevLang) {
+    setPrevLang(lang);
+    setTarget(getRandomText(lang));
+  }
+
   const engine = useTypingEngine(target, lang);
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState<boolean>(true);
@@ -44,12 +59,6 @@ export default function Practice() {
     navigate('/');
   };
 
-  const handleLangSwitch = (newLang: Language) => {
-    if (newLang === lang) return;
-    setLang(newLang);
-    setTarget(getRandomText(newLang));
-  };
-
   return (
     <div
       className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center px-6 ${
@@ -68,39 +77,9 @@ export default function Practice() {
         >
           ← 首页
         </button>
-        <div
-          className="inline-flex bg-slate-800/60 border border-slate-700 rounded-full p-1"
-          role="tablist"
-          aria-label="language"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lang === 'en'}
-            onClick={() => handleLangSwitch('en')}
-            className={`px-4 py-1.5 rounded-full text-sm transition ${
-              lang === 'en'
-                ? 'bg-sky-500 text-slate-900 font-medium'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lang === 'zh'}
-            onClick={() => handleLangSwitch('zh')}
-            className={`px-4 py-1.5 rounded-full text-sm transition ${
-              lang === 'zh'
-                ? 'bg-sky-500 text-slate-900 font-medium'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            中文
-          </button>
+        <div className="text-[11px] uppercase tracking-widest text-slate-500">
+          {isZh ? '中文 · CPM' : 'English · WPM'}
         </div>
-        <div className="w-16" aria-hidden="true" />
       </header>
 
       {engine.isComplete ? (
