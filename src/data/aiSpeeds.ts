@@ -11,7 +11,7 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
  */
 export const AI_SPEEDS: Record<Language, Record<Difficulty, number>> = {
   en: { easy: 25, medium: 45, hard: 70 },
-  zh: { easy: 60, medium: 120, hard: 200 },
+  zh: { easy: 30, medium: 80, hard: 160 },
 };
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
