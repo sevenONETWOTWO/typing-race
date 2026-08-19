@@ -86,6 +86,26 @@ export default function Online() {
   const myFinishAtRef = useRef<number | null>(null);
   const oppFinishAtRef = useRef<number | null>(null);
 
+  // Refs mirroring state so realtime .on() handlers always see the LATEST
+  // values (their closures are locked in at attach-time, before setLang /
+  // setTarget from handleCreateRoom have settled).
+  const langRef = useRef<Language>(lang);
+  const targetRef = useRef<string>(target);
+  const meReadyRef = useRef<boolean>(false);
+  const endReasonRef = useRef<EndReason | null>(null);
+  useEffect(() => {
+    langRef.current = lang;
+  }, [lang]);
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+  useEffect(() => {
+    meReadyRef.current = meReady;
+  }, [meReady]);
+  useEffect(() => {
+    endReasonRef.current = endReason;
+  }, [endReason]);
+
   const engine = useTypingEngine(target, lang);
   const inputRef = useRef<HTMLInputElement>(null);
   const [focused, setFocused] = useState<boolean>(true);
@@ -135,17 +155,19 @@ export default function Online() {
       myRole === 'host' ? 'guest' : myRole === 'guest' ? 'host' : null;
     const nowConnected = oppRole !== null && roles.has(oppRole);
     setOppConnected((prev) => {
-      // Guest joined and we're host → resync lang+text to guest
+      // Guest joined and we're host → resync lang+text to guest.
+      // Read the latest values from refs — closure-captured lang/target would
+      // still be the useState defaults (en / '') at the moment attachListeners
+      // ran inside handleCreateRoom, before setLang/setTarget committed.
       if (!prev && nowConnected && myRole === 'host') {
-        // fire on next tick to make sure guest's channel is fully ready
         window.setTimeout(() => {
-          send({ type: 'lang', lang });
-          send({ type: 'text', text: target });
+          send({ type: 'lang', lang: langRef.current });
+          send({ type: 'text', text: targetRef.current });
         }, 100);
       }
       return nowConnected;
     });
-  }, [lang, target, send]);
+  }, [send]);
 
   /* ---------- Race-time countdown driver ---------- */
 
@@ -191,29 +213,13 @@ export default function Online() {
     }
   }, [engine.stats.progress, phase, send]);
 
-  /* ---------- Detect own finish ---------- */
-
-  useEffect(() => {
-    if (phase !== 'racing') return;
-    if (!engine.isComplete) return;
-    if (finishSentRef.current) return;
-    const myRole = roleRef.current;
-    if (myRole === null) return;
-    finishSentRef.current = true;
-    const at = engine.endedAt ?? Date.now();
-    myFinishAtRef.current = at;
-    // Ensure the last progress=100 is broadcast (finish alone doesn't imply it)
-    lastProgressSentRef.current = 100;
-    send({ type: 'progress', role: myRole, progress: 100 });
-    send({ type: 'finish', role: myRole, at });
-    tryResolveWinner();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine.isComplete, phase]);
-
   /* ---------- Winner resolution ---------- */
 
   const tryResolveWinner = useCallback(() => {
-    if (endReason !== null) return;
+    // Read via ref so the callback is stable across renders — otherwise
+    // attachListeners would need to be recreated (and re-attached) every
+    // time endReason changes, which we can't do post-subscribe.
+    if (endReasonRef.current !== null) return;
     const mine = myFinishAtRef.current;
     const opp = oppFinishAtRef.current;
     if (mine === null && opp === null) return;
@@ -235,7 +241,37 @@ export default function Online() {
       setEndReason('opponent');
       setPhase('finished');
     }
-  }, [endReason]);
+  }, []);
+
+  /* ---------- Detect own finish ---------- */
+
+  useEffect(() => {
+    if (phase !== 'racing') return;
+    if (!engine.isComplete) return;
+    // Guard against the empty-string edge case: useTypingEngine treats
+    // `committedInput === target` as complete, and both are '' before the
+    // guest has received `text` from host — that would fire a bogus finish
+    // the instant we enter racing. Real races always have a non-empty target.
+    if (target.length === 0) return;
+    if (finishSentRef.current) return;
+    const myRole = roleRef.current;
+    if (myRole === null) return;
+    finishSentRef.current = true;
+    const at = engine.endedAt ?? Date.now();
+    myFinishAtRef.current = at;
+    // Ensure the last progress=100 is broadcast (finish alone doesn't imply it)
+    lastProgressSentRef.current = 100;
+    send({ type: 'progress', role: myRole, progress: 100 });
+    send({ type: 'finish', role: myRole, at });
+    tryResolveWinner();
+  }, [
+    engine.isComplete,
+    phase,
+    target,
+    engine.endedAt,
+    send,
+    tryResolveWinner,
+  ]);
 
   /* ---------- Broadcast event dispatcher (single subscription) ---------- */
 
@@ -246,10 +282,12 @@ export default function Online() {
         switch (payload.type) {
           case 'sync-request':
             if (myRole === 'host') {
-              send({ type: 'lang', lang });
-              send({ type: 'text', text: target });
-              // Also resend ready if we're ready
-              if (meReady) {
+              // Read from refs, not closures: attachListeners captured its
+              // deps at the moment handleCreateRoom kicked off, before
+              // setLang/setTarget for the chosen language had committed.
+              send({ type: 'lang', lang: langRef.current });
+              send({ type: 'text', text: targetRef.current });
+              if (meReadyRef.current) {
                 send({ type: 'ready', role: 'host', ready: true });
               }
             }
@@ -258,7 +296,8 @@ export default function Online() {
             if (myRole === 'guest') setLang(payload.lang);
             break;
           case 'text':
-            if (myRole === 'guest') setTarget(payload.text);
+            if (myRole === 'guest' && payload.text.length > 0)
+              setTarget(payload.text);
             break;
           case 'ready':
             if (payload.role !== myRole) setOppReady(payload.ready);
@@ -341,14 +380,7 @@ export default function Online() {
         }, 50);
       });
     },
-    [
-      handlePresenceSync,
-      lang,
-      target,
-      meReady,
-      send,
-      tryResolveWinner,
-    ],
+    [handlePresenceSync, send, tryResolveWinner],
   );
 
   /* ---------- Create room ---------- */
@@ -619,6 +651,7 @@ export default function Online() {
           oppConnected={oppConnected}
           meReady={meReady}
           oppReady={oppReady}
+          hasTarget={target.length > 0}
           onToggleReady={toggleReady}
         />
       )}
@@ -836,6 +869,7 @@ function WaitingView({
   oppConnected,
   meReady,
   oppReady,
+  hasTarget,
   onToggleReady,
 }: {
   role: Role | null;
@@ -844,9 +878,11 @@ function WaitingView({
   oppConnected: boolean;
   meReady: boolean;
   oppReady: boolean;
+  hasTarget: boolean;
   onToggleReady: () => void;
 }) {
   const isZh = lang === 'zh';
+  const canReady = oppConnected && hasTarget;
   return (
     <div
       className="w-full max-w-2xl mt-12 flex flex-col items-center"
@@ -881,7 +917,7 @@ function WaitingView({
       <button
         type="button"
         onClick={onToggleReady}
-        disabled={!oppConnected}
+        disabled={!canReady}
         className={`mt-10 rounded-full px-10 py-3 font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${
           meReady
             ? 'bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700'
@@ -896,6 +932,11 @@ function WaitingView({
           {role === 'host'
             ? '把房间号发给朋友让 TA 加入…'
             : '等待房主准备好房间…'}
+        </div>
+      )}
+      {oppConnected && !hasTarget && role === 'guest' && (
+        <div className="mt-4 text-xs text-slate-500">
+          正在同步房间语言和文本…
         </div>
       )}
       {oppConnected && meReady && oppReady && role === 'guest' && (
