@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import AIRace from './pages/AIRace';
 import Home from './pages/Home';
+import Online from './pages/Online';
 import Practice from './pages/Practice';
 
 function App() {
@@ -10,6 +11,7 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/practice" element={<Practice />} />
         <Route path="/ai" element={<AIRace />} />
+        <Route path="/online" element={<Online />} />
       </Routes>
     </BrowserRouter>
   );

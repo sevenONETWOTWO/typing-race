@@ -69,6 +69,16 @@ export default function Home() {
             />
           </div>
         </div>
+        <div>
+          <SectionLabel>联机对战 · Multiplayer</SectionLabel>
+          <div className="grid grid-cols-1 gap-4">
+            <Entry
+              to="/online"
+              title="联机对战"
+              subtitle="4 位房间号 · 创建或加入 · 语言房主选"
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
