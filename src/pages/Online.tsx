@@ -376,8 +376,14 @@ export default function Online() {
         const probe = supabase.channel(channelName, {
           config: { presence: { key: 'host' } },
         });
-        // Subscribe first, then check presence — Presence only reports peers
-        // after subscription is confirmed.
+        // Supabase requires all .on() listeners to be registered BEFORE
+        // subscribe(). Attach here so that if the probe finds the code free
+        // it can be promoted straight into the working channel with no
+        // second subscribe (attaching after subscribe would throw
+        // "cannot add `presence` callbacks after subscribe()"). Listener
+        // callbacks are safe to run during the probe window — roleRef is
+        // still null so handlePresenceSync short-circuits.
+        attachListeners(probe);
         // eslint-disable-next-line no-await-in-loop
         const occupied = await new Promise<boolean>((resolve) => {
           let settled = false;
@@ -408,12 +414,12 @@ export default function Online() {
           continue;
         }
 
-        // Claim: promote this channel to the working channel, track presence
+        // Claim: probe was free — promote it to the working channel.
+        // Listeners are already attached; just flip role state + track presence.
         channelRef.current = probe;
         roleRef.current = 'host';
         setRole('host');
         setRoomCode(code);
-        attachListeners(probe);
         // eslint-disable-next-line no-await-in-loop
         await probe.track({ role: 'host' } as PresenceMeta);
         setStatusMsg('');
